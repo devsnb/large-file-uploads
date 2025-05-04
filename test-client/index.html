@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Tus Upload Test Client</title>
+		<script src="https://unpkg.com/tus-js-client@3.1.0/dist/tus.min.js"></script>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				max-width: 800px;
+				margin: 0 auto;
+				padding: 20px;
+			}
+			.upload-container {
+				border: 2px dashed #ccc;
+				padding: 20px;
+				text-align: center;
+				margin-bottom: 20px;
+			}
+			.file-list {
+				margin-top: 20px;
+			}
+			.file-item {
+				display: flex;
+				align-items: center;
+				margin-bottom: 10px;
+				padding: 10px;
+				border: 1px solid #eee;
+				border-radius: 4px;
+			}
+			.progress-bar {
+				flex-grow: 1;
+				height: 20px;
+				background-color: #f0f0f0;
+				border-radius: 4px;
+				margin: 0 10px;
+				overflow: hidden;
+			}
+			.progress {
+				height: 100%;
+				background-color: #4caf50;
+				width: 0%;
+				transition: width 0.3s ease;
+			}
+			.controls {
+				display: flex;
+				gap: 10px;
+			}
+			button {
+				padding: 5px 10px;
+				border: none;
+				border-radius: 4px;
+				cursor: pointer;
+				background-color: #4caf50;
+				color: white;
+			}
+			button:disabled {
+				background-color: #cccccc;
+				cursor: not-allowed;
+			}
+			.error {
+				color: red;
+				margin-top: 5px;
+			}
+			.status {
+				margin-left: 10px;
+				font-size: 0.9em;
+				color: #666;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Tus Upload Test Client</h1>
+		<div class="upload-container">
+			<input type="file" id="file-input" multiple />
+			<div class="file-list" id="file-list"></div>
+		</div>
+
+		<script>
+			// Replace with your JWT token
+			const JWT_TOKEN = 'your-jwt-token'
+			const UPLOAD_ENDPOINT = 'http://localhost:8080/files/'
+
+			// Store uploads and their states
+			const uploads = new Map()
+
+			document
+				.getElementById('file-input')
+				.addEventListener('change', handleFileSelect)
+
+			function handleFileSelect(event) {
+				const files = event.target.files
+				for (let i = 0; i < files.length; i++) {
+					const file = files[i]
+					createUpload(file)
+				}
+			}
+
+			function createUpload(file) {
+				const upload = new tus.Upload(file, {
+					endpoint: UPLOAD_ENDPOINT,
+					retryDelays: [0, 3000, 5000, 10000, 20000],
+					metadata: {
+						filename: file.name,
+						filetype: file.type
+					},
+					headers: {
+						Authorization: 'Bearer ' + JWT_TOKEN
+					},
+					// Store upload URL in localStorage
+					storeFingerprintForResuming: true,
+					removeFingerprintOnSuccess: false,
+					onError: function (error) {
+						console.error('Upload failed:', error)
+						updateFileStatus(file.name, 'error', error.message)
+					},
+					onProgress: function (bytesUploaded, bytesTotal) {
+						const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2)
+						updateFileProgress(file.name, percentage, bytesUploaded, bytesTotal)
+
+						// Log upload URL once it's available
+						if (upload.url && !uploads.get(file.name).hasLoggedUrl) {
+							console.log('Upload URL available:', upload.url)
+							uploads.get(file.name).hasLoggedUrl = true
+						}
+					},
+					onSuccess: function () {
+						console.log('Upload completed:', file.name)
+						updateFileStatus(file.name, 'complete')
+					},
+					onAfterResponse: function (req, res) {
+						console.log(
+							'Response received:',
+							req.getMethod(),
+							res.getStatus(),
+							res.getHeader('Upload-Offset')
+						)
+					}
+				})
+
+				// Store the upload with initial state
+				uploads.set(file.name, {
+					upload: upload,
+					state: 'pending',
+					hasLoggedUrl: false
+				})
+
+				// Create UI elements
+				createFileUI(file.name)
+			}
+
+			function createFileUI(filename) {
+				const fileList = document.getElementById('file-list')
+				const fileItem = document.createElement('div')
+				fileItem.className = 'file-item'
+				fileItem.id = `file-${filename}`
+
+				fileItem.innerHTML = `
+					<span>${filename}</span>
+					<div class="progress-bar">
+						<div class="progress" id="progress-${filename}"></div>
+					</div>
+					<div class="controls">
+						<button onclick="startUpload('${filename}')" id="start-${filename}">Start</button>
+						<button onclick="pauseUpload('${filename}')" id="pause-${filename}" disabled>Pause</button>
+						<button onclick="resumeUpload('${filename}')" id="resume-${filename}" disabled>Resume</button>
+					</div>
+					<div class="status" id="status-${filename}">Pending</div>
+				`
+
+				fileList.appendChild(fileItem)
+			}
+
+			function updateFileProgress(
+				filename,
+				percentage,
+				bytesUploaded,
+				bytesTotal
+			) {
+				const progressBar = document.getElementById(`progress-${filename}`)
+				const status = document.getElementById(`status-${filename}`)
+
+				progressBar.style.width = percentage + '%'
+				status.textContent = `${bytesUploaded} / ${bytesTotal} bytes (${percentage}%)`
+			}
+
+			function updateFileStatus(filename, status, error = null) {
+				const fileItem = document.getElementById(`file-${filename}`)
+				const statusDiv = document.getElementById(`status-${filename}`)
+				const startBtn = document.getElementById(`start-${filename}`)
+				const pauseBtn = document.getElementById(`pause-${filename}`)
+				const resumeBtn = document.getElementById(`resume-${filename}`)
+
+				// Update the stored state
+				if (uploads.has(filename)) {
+					uploads.get(filename).state = status
+				}
+
+				switch (status) {
+					case 'error':
+						statusDiv.textContent = `Error: ${error}`
+						statusDiv.className = 'status error'
+						startBtn.disabled = false
+						pauseBtn.disabled = true
+						resumeBtn.disabled = true
+						break
+					case 'complete':
+						statusDiv.textContent = 'Upload complete'
+						statusDiv.className = 'status'
+						startBtn.disabled = true
+						pauseBtn.disabled = true
+						resumeBtn.disabled = true
+						break
+					case 'uploading':
+						statusDiv.textContent = 'Uploading...'
+						statusDiv.className = 'status'
+						startBtn.disabled = true
+						pauseBtn.disabled = false
+						resumeBtn.disabled = true
+						break
+					case 'paused':
+						statusDiv.textContent = 'Paused'
+						statusDiv.className = 'status'
+						startBtn.disabled = true
+						pauseBtn.disabled = true
+						resumeBtn.disabled = false
+						break
+					case 'pending':
+						statusDiv.textContent = 'Pending'
+						statusDiv.className = 'status'
+						startBtn.disabled = false
+						pauseBtn.disabled = true
+						resumeBtn.disabled = true
+						break
+				}
+			}
+
+			function startUpload(filename) {
+				const uploadData = uploads.get(filename)
+				if (uploadData && uploadData.state === 'pending') {
+					// Check for previous uploads and start
+					uploadData.upload
+						.findPreviousUploads()
+						.then(function (previousUploads) {
+							if (previousUploads.length) {
+								console.log(
+									'Found previous upload, resuming:',
+									previousUploads[0]
+								)
+								uploadData.upload.resumeFromPreviousUpload(previousUploads[0])
+							}
+
+							// Start the upload
+							uploadData.upload.start()
+							updateFileStatus(filename, 'uploading')
+						})
+				}
+			}
+
+			function pauseUpload(filename) {
+				const uploadData = uploads.get(filename)
+				if (uploadData && uploadData.state === 'uploading') {
+					// Only allow pause if we have a URL
+					if (!uploadData.upload.url) {
+						console.error('Cannot pause upload, URL not yet available')
+						return
+					}
+
+					console.log('Pausing upload:', filename)
+					console.log('Current URL:', uploadData.upload.url)
+
+					// Abort the current upload
+					uploadData.upload.abort()
+
+					updateFileStatus(filename, 'paused')
+				}
+			}
+
+			function resumeUpload(filename) {
+				const uploadData = uploads.get(filename)
+				if (uploadData && uploadData.state === 'paused') {
+					console.log('Attempting to resume upload:', filename)
+
+					// Get the existing upload object
+					const upload = uploadData.upload
+
+					if (!upload) {
+						console.error('Cannot resume: Upload object not found')
+						updateFileStatus(filename, 'error', 'Upload object not found')
+						return
+					}
+
+					// Simply call start() on the existing upload object.
+					// tus-js-client should handle finding the previous state and resuming.
+					try {
+						upload.start()
+						console.log('Upload resume initiated')
+						updateFileStatus(filename, 'uploading')
+					} catch (error) {
+						console.error('Failed to resume upload:', error)
+						updateFileStatus(
+							filename,
+							'error',
+							'Failed to resume upload: ' + error.message
+						)
+					}
+				}
+			}
+		</script>
+	</body>
+</html>

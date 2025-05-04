@@ -1,0 +1,58 @@
+# Application Configuration
+app:
+  name: 'large-file-uploads'
+  environment: 'development' # development, staging, production
+  port: 8080
+  debug: true
+  timeout: 60 # seconds
+
+# Storage Configuration
+storage:
+  type: 'minio' # local, s3, azure, minio
+
+  # Local storage configuration
+  local:
+    rootDir: './uploads'
+    tempDir: './temp'
+
+  # S3 storage configuration
+  s3:
+    region: 'us-east-1'
+    bucket: 'my-uploads-bucket'
+    accessKey: '' # Set via environment variables for security
+    secretKey: '' # Set via environment variables for security
+    endpoint: '' # Optional custom endpoint for S3-compatible services
+
+  # Azure Blob storage configuration
+  azure:
+    accountName: ''
+    accountKey: ''
+    containerName: 'uploads'
+
+  # MinIO configuration
+  minio:
+    endpoint: 'localhost:9000'
+    accessKey: 'minioadmin'
+    secretKey: 'minioadmin'
+    ssl: false
+    bucket: 'uploads'
+
+# Logging Configuration
+logging:
+  level: 'info' # debug, info, warn, error
+  format: 'json' # json, text
+
+# CORS Configuration
+cors:
+  allowedOrigins:
+    - '*'
+  allowedMethods:
+    - 'GET'
+    - 'POST'
+    - 'PUT'
+    - 'DELETE'
+    - 'OPTIONS'
+  allowedHeaders:
+    - 'Content-Type'
+    - 'Authorization'
+  maxAge: 86400 # seconds (24 hours)
